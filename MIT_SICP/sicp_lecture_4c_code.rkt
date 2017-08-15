@@ -1,53 +1,52 @@
-#lang racket
-
-;;; 以下三个定义 env0, ext-env, lookup 是对环境(environment)的基本操作:
-
-;; 空环境
-(define env0 '())
-
-;; 扩展。对环境 env 进行扩展，把 x 映射到 v，得到一个新的环境
-(define ext-env
-  (lambda (x v env)
-    (cons `(,x . ,v) env)))
-
-;; 查找。在环境中 env 中查找 x 的值。如果没找到就返回 #f
-(define lookup
-  (lambda (x env)
-    (let ([p (assq x env)])
-      (cond
-       [(not p) #f]
-       [else (cdr p)]))))
-       
-;; 闭包的数据结构定义，包含一个函数定义 f 和它定义时所在的环境
-(struct Closure (f env))
-
-;; 解释器的递归定义（接受两个参数，表达式 exp 和环境 env）
-;; 共 5 种情况（变量，函数，绑定，调用，数字，算术表达式）
-(define interp
-  (lambda (exp env)
-    (match exp                                          ; 对exp进行模式匹配
-      [`(,dd ,v? ,v) 1]                                 ; 变量            
-      [`(,dd ,c? ,v) 0]                                 ; 数字
-      [`(,dd ,u? ,v) 0]
-      [`(let ([,x ,e1]) ,e2)                            ; 绑定
-       (let ([v1 (interp e1 env)])
-         (interp e2 (ext-env x v1 env)))]
-      [`(,e1 ,e2)                                       ; 调用
-       (let ([v1 (interp e1 env)]
-             [v2 (interp e2 env)])
-         (match v1
-           [(Closure `(lambda (,x) ,e) env-save)
-            (interp e (ext-env x v2 env-save))]))]
-      [`(,op ,e1 ,e2)                                   ; 算术表达式
-       (let ([v1 (interp e1 env)]
-             [v2 (interp e2 env)])
+#lang scheme
+(define driv
+  (lambda (exp var)
+    (match exp
+      [(? number? x) 0]
+      [(? variable? x)
+       (if (same-variable? x var)
+           1
+           0)]
+      [`(,op ,u ,v)
+       (let ([du (driv u var)])
          (match op
-           ['+ (+ v1 v2)]
-           ['- (- v1 v2)]
-           ['* (* v1 v2)]
-           ['/ (/ v1 v2)]))])))
+           ['+ (make-sum du (driv v var))]
+           ['* (make-sum (make-product u (driv v var)) (make-product v du))]
+           ['exp (make-product (make-product v (make-exponentiation u (- v 1))) du)]))]
+      [else error "Unknown type" exp]
+      )))
 
-;; 解释器的“用户界面”函数。它把 interp 包装起来，掩盖第二个参数，初始值为 env0
-(define r2
-  (lambda (exp)
-    (interp exp env0)))
+(define same-variable?
+  (lambda (x y)
+    (and (variable? x) (variable? y) (eq? x y))))
+
+(define variable?
+  (lambda (x)
+    (symbol? x)))
+
+(define =number?
+  (lambda (x num)
+    (and (number? x) (= x num))))
+
+(define make-sum
+  (lambda (a1 a2)
+    (cond ((=number? a1 0) a2)
+          ((=number? a2 0) a1)
+          ((and (number? a1) (number? a2)) (+ a1 a2))
+          (else (list '+ a1 a2)))))
+
+(define make-product
+  (lambda (m1 m2)
+    (cond ((=number? m1 1) m2)
+          ((=number? m2 1) m1)
+          ((or (=number? m1 0) (=number? m2 0)) 0)
+          ((and (number? m1) (number? m2)) (* m1 m2))
+          (else (list '* m1 m2)))))
+
+(define make-exponentiation
+  (lambda (base exponent)
+    (cond ((=number? base 1) 1)
+          ((=number? exponent 0) 1)
+          ((and (number? base) (number? exponent)) (expt base exponent))
+          (else (list 'exp base exponent)))))
+
